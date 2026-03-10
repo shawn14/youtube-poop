@@ -219,7 +219,6 @@ def scene_title():
 
         cx(d, "STOCKALARM.IO", H//2 - 80, color=wh_, font=F[96])
         cx(d, "take action faster", H//2 + 30, color=bl_, font=F[36])
-        cx(d, "a youtube poop",     H//2 + 85, color=gy_, font=F[20])
 
         draw_ticker(d, fn * 4, TICKER_ITEMS)
         img = scanlines(img)
