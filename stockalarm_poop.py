@@ -285,11 +285,12 @@ def scene_market_open():
 
 
 def scene_alert_storm():
-    """5s – Notifications raining down."""
+    """5s – Notification stack, no overlaps. Newest on top, others shift down."""
     n = 5 * FPS
-    alerts = [
-        ("AAPL",  "hit your price target $220.00 ↑",   UG),
-        ("TSLA",  "up 8.2% — RSI crossed 70",           UG),
+
+    alerts_data = [
+        ("AAPL",  "hit your price target $220.00 ↑",  UG),
+        ("TSLA",  "up 8.2% — RSI crossed 70",          UG),
         ("NVDA",  "Golden Cross detected!",             YL),
         ("SPY",   "dropped below 200 SMA ↓",            DR),
         ("BTC",   "Death Cross — MACD bearish",         DR),
@@ -298,61 +299,92 @@ def scene_alert_storm():
         ("ETH",   "hit limit: $3,500",                  UG),
         ("AMZN",  "EMA(20) crossed EMA(50) ↑",          UG),
         ("MEME",  "420% gain in 24h",                   UG),
+        ("MSFT",  "earnings beat — up 6.1%",            UG),
+        ("META",  "SMA(50) breakout detected",          YL),
     ]
-    # Active notifications on screen
-    active = []  # (x, y, text, color, age)
-    frames = []
 
+    CARD_H      = 74
+    CARD_GAP    = 8
+    SLOT_H      = CARD_H + CARD_GAP
+    CARD_W      = 680
+    CARD_X      = 20
+    MAX_SLOTS   = 7            # max cards visible at once
+    LIFETIME    = int(3.5 * FPS)  # frames each card lives
+    INTERVAL    = 18           # frames between new alerts arriving
+    SLIDE_FRAMES = 10          # frames for slide-in animation
+
+    # Pre-schedule arrival frame for each alert
+    schedule = [(i * INTERVAL, alerts_data[i % len(alerts_data)])
+                for i in range(n // INTERVAL + 2)]
+
+    frames = []
     for fn in range(n):
-        p = fn / n
+        p   = fn / n
         img, d = new_frame((5, 8, 20))
 
-        # Add new alert every ~0.4s
-        if fn % 12 == 0:
-            sym, msg, col = random.choice(alerts)
-            active.append([40, -60, sym, msg, col, 0])
+        # Collect currently-alive alerts, newest first
+        alive = []
+        for start_fn, alert in schedule:
+            if start_fn <= fn < start_fn + LIFETIME:
+                age = fn - start_fn
+                alive.append((start_fn, age, alert))
+        alive.sort(key=lambda x: -x[0])   # newest (highest start_fn) first
+        visible = alive[:MAX_SLOTS]
 
-        # Draw active notifications
-        for alert in active[:]:
-            ax, ay, sym, msg, col, age = alert
-            ay += 3
-            alert[1] = ay
-            alert[5] += 1
+        for slot, (start_fn, age, (sym, msg, col)) in enumerate(visible):
+            target_y = 20 + slot * SLOT_H
 
-            if ay > H + 80 or age > FPS * 3:
-                active.remove(alert)
-                continue
+            # Slide in from the left during first SLIDE_FRAMES
+            if age < SLIDE_FRAMES:
+                t_slide = age / SLIDE_FRAMES          # 0→1
+                ease    = t_slide * (2 - t_slide)     # ease-out
+                card_x  = CARD_X - int(CARD_W * (1 - ease))
+            else:
+                card_x  = CARD_X
 
-            # Notification card
-            card_w = 600
-            d.rounded_rectangle([ax, ay, ax + card_w, ay + 60],
-                                  radius=8, fill=(15, 25, 50), outline=col, width=2)
-            d.text((ax + 12, ay + 8),  sym, fill=col,  font=F[24])
-            d.text((ax + 90, ay + 10), msg, fill=WH,   font=F[18])
-            d.text((ax + 12, ay + 38), "StockAlarm", fill=BL, font=F[13])
-            # App icon placeholder
-            d.rounded_rectangle([ax + card_w - 50, ay + 8, ax + card_w - 8, ay + 52],
-                                  radius=6, fill=BL)
-            d.text((ax + card_w - 44, ay + 18), "SA", fill=WH, font=F[18])
+            # Draw card
+            d.rounded_rectangle(
+                [card_x, target_y, card_x + CARD_W, target_y + CARD_H],
+                radius=8, fill=(15, 25, 50), outline=col, width=2
+            )
+            # SA icon square
+            icon_x = card_x + CARD_W - 54
+            d.rounded_rectangle(
+                [icon_x, target_y + 10, icon_x + 44, target_y + CARD_H - 10],
+                radius=6, fill=BL
+            )
+            d.text((icon_x + 6, target_y + 18), "SA", fill=WH, font=F[20])
 
-        # Stats sidebar
-        d.text((W - 250, 20), "ALERTS FIRED", fill=GY, font=F[13])
-        count = int(p * 847)
-        d.text((W - 250, 38), f"{count:,}", fill=YL, font=F[48])
-        d.text((W - 250, 100), f"ASSETS TRACKED", fill=GY, font=F[13])
-        d.text((W - 250, 118), "65,000+", fill=BL, font=F[28])
+            # Text
+            d.text((card_x + 12, target_y + 8),  sym,               fill=col, font=F[24])
+            d.text((card_x + 95, target_y + 10), msg,               fill=WH,  font=F[18])
+            d.text((card_x + 12, target_y + 48), "StockAlarm • now", fill=BL,  font=F[13])
+
+        # Stats panel — right of card stack
+        sx = CARD_X + CARD_W + 28
+        d.text((sx, 20),  "ALERTS FIRED",  fill=GY, font=F[13])
+        d.text((sx, 38),  f"{int(p*847):,}", fill=YL, font=F[48])
+        d.text((sx, 100), "ASSETS TRACKED", fill=GY, font=F[13])
+        d.text((sx, 118), "65,000+",        fill=BL, font=F[28])
+        d.text((sx, 165), "CHANNELS:",      fill=GY, font=F[13])
+        for i, ch in enumerate(["Push", "Email", "SMS", "Call"]):
+            d.text((sx, 183 + i * 24), f"✓  {ch}", fill=UG, font=F[18])
 
         draw_ticker(d, fn * 5, TICKER_ITEMS)
         img = scanlines(img)
         frames.append(img)
 
-    # Rapid notification chimes
-    chime_audio = []
-    for i in range(15):
-        chime_audio.append(silence(random.uniform(0.1, 0.4)))
-        chime_audio.append(alert_chime(random.uniform(0.8, 1.3)))
+    # Rapid chimes timed to alert arrivals
+    total_samples = int(SR * n / FPS)
+    chime_audio   = np.zeros(total_samples)
+    for start_fn, _ in schedule:
+        if start_fn < n:
+            sample_pos = int(start_fn / FPS * SR)
+            chime      = alert_chime(random.uniform(0.85, 1.2))
+            end        = min(sample_pos + len(chime), total_samples)
+            chime_audio[sample_pos:end] += chime[:end - sample_pos]
     w = f"{TMP}/audio/alert_chimes.wav"
-    write_wav(np.concatenate(chime_audio), w)
+    write_wav(chime_audio * 0.7, w)
 
     vw = tts(
         "Apple hit your price target. "
