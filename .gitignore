@@ -1,0 +1,10 @@
+# Output videos
+*.mp4
+*.mov
+*.avi
+
+# Temp working files
+/tmp/ytp_*/
+__pycache__/
+*.pyc
+.DS_Store
